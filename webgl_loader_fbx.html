@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<title>three.js webgl - FBX loader</title>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+		<style>
+			body {
+				font-family: Monospace;
+				background-color: #000;
+				color: #fff;
+				margin: 0px;
+				overflow: hidden;
+			}
+			#info {
+				color: #fff;
+				position: absolute;
+				top: 10px;
+				width: 100%;
+				text-align: center;
+				z-index: 100;
+				display:block;
+			}
+			#info a {
+				color: #046;
+				font-weight: bold;
+			}
+		</style>
+	</head>
+
+	<body>
+		<div id="info">
+			<a href="http://threejs.org" target="_blank" rel="noopener">three.js</a> - FBXLoader<br />
+			Character and animation from <a href="https://www.mixamo.com/" target="_blank" rel="noopener">Mixamo</a>
+		</div>
+
+		<script src="lib/three.js"></script>
+
+		<script src="lib/inflate.min.js"></script>
+		<script src="lib/FBXLoader.js"></script>
+
+		<script src="lib/OrbitControls.js"></script>
+
+		<script src="lib/Detector.js"></script>
+		<script src="lib/stats.min.js"></script>
+
+		<script>
+
+			if ( ! Detector.webgl ) Detector.addGetWebGLMessage();
+
+			var container, stats, controls;
+			var camera, scene, renderer, light;
+
+			var clock = new THREE.Clock();
+
+			var mixers = [];
+
+            var clock1 = new THREE.Clock();
+
+            var mixers1 = [];
+
+			init();
+			animate();
+
+			function init() {
+
+				container = document.createElement( 'div' );
+				document.body.appendChild( container );
+
+				camera = new THREE.PerspectiveCamera( 45, window.innerWidth / window.innerHeight, 1, 2000 );
+				camera.position.set( 100, 200, 300 );
+
+				controls = new THREE.OrbitControls( camera );
+				controls.target.set( 0, 100, 0 );
+				controls.update();
+
+				scene = new THREE.Scene();
+				scene.background = new THREE.Color( 0xa0a0a0 );
+				scene.fog = new THREE.Fog( 0xa0a0a0, 200, 1000 );
+
+				light = new THREE.HemisphereLight( 0xffffff, 0x444444 );
+				light.position.set( 0, 200, 0 );
+				scene.add( light );
+
+				light = new THREE.DirectionalLight( 0xffffff );
+				light.position.set( 0, 200, 100 );
+				light.castShadow = true;
+				light.shadow.camera.top = 180;
+				light.shadow.camera.bottom = -100;
+				light.shadow.camera.left = -120;
+				light.shadow.camera.right = 120;
+				scene.add( light );
+
+				// scene.add( new THREE.CameraHelper( light.shadow.camera ) );
+
+				// ground
+				// var mesh = new THREE.Mesh( new THREE.PlaneBufferGeometry( 2000, 2000 ), new THREE.MeshPhongMaterial( { color: 0x999999, depthWrite: false } ) );
+				// mesh.rotation.x = - Math.PI / 2;
+				// mesh.receiveShadow = true;
+				// scene.add( mesh );
+                //
+				// var grid = new THREE.GridHelper( 2000, 20, 0x000000, 0x000000 );
+				// grid.material.opacity = 0.2;
+				// grid.material.transparent = true;
+				// scene.add( grid );
+
+				// var model = null;
+				var action = null;
+				// model
+                var gun;
+                var leftShoulder;
+				var rightShoulder;
+
+				var loader = new THREE.FBXLoader();
+                var loader1 = new THREE.FBXLoader();
+				loader1.load( 'model/gun/gun.fbx', function ( object ) {
+
+                    // action = object.mixer.clipAction( object.animations[ 0 ] );
+
+					object.traverse( function ( child ) {
+
+						if ( child.isMesh ) {
+							child.castShadow = true;
+							child.receiveShadow = true;
+						}
+
+					} );
+
+					var scale = 60;
+					object.scale.x = scale;
+                    object.scale.y = scale;
+                    object.scale.z = scale;
+
+					// scene.add( object );
+
+                    gun = object;
+
+                    loader.load( 'model/model.fbx', function ( object ) {
+
+                        object.mixer = new THREE.AnimationMixer( object );
+                        mixers.push( object.mixer );
+
+                        action = object.mixer.clipAction( object.animations[ 8 ] );
+
+                        object.traverse( function ( child ) {
+
+                            if ( child.isMesh ) {
+                                child.castShadow = true;
+                                child.receiveShadow = true;
+                            }
+
+                        } );
+
+                        leftShoulder = findObject(object, 'mixamorigLeftArm');
+                        rightShoulder = findObject(object, 'mixamorigRightArm');
+
+                        var finger = findObject(object, 'mixamorigRightHand');
+
+                        finger.add(gun);
+                        gun.rotation.x = 1.7000000000000148;
+                        gun.rotation.y = 7.969999999999958;
+                        gun.rotation.z = 12.50999999999998;
+                        gun.position.x = -83.67866445439134;
+                        gun.position.y = -12.377484405007998;
+                        gun.position.z = 1.5927561556757477;
+
+                        // object.scale.x = 100;
+                        // object.scale.y = 100;
+                        // object.scale.z = 100;
+
+                        scene.add( object );
+                        object.rotation.y = Math.PI;
+                        // gun.rotation.x = Math.PI;
+
+                        // model = object;
+
+                    } );
+
+					// model = object;
+
+				} );
+
+                window.addEventListener('click', function (e) {
+                    // var action = model.mixer.clipAction( model.animations[ 0 ] );
+                    action.stop();
+                    // action.play();
+                    // gun.rotation.x += Math.PI/10;
+                }, false);
+
+                document.body.addEventListener('keydown', function (e) {
+                    switch (e.keyCode) {
+                        case 81: // w
+                            gun.rotation.x += 0.01;
+                            console.log(gun.rotation);
+                            break;
+                        case 87: // s
+                            gun.rotation.y += 0.01;
+                            console.log(gun.rotation);
+                            break;
+                        case 69: // a
+                            gun.rotation.z += 0.01;
+                            console.log(gun.rotation);
+                            break;
+                        case 82: // w
+                            gun.rotation.x -= 0.01;
+                            console.log(gun.rotation);
+                            break;
+                        case 84: // s
+                            gun.rotation.y -= 0.01;
+                            console.log(gun.rotation);
+                            break;
+                        case 89: // a
+                            gun.rotation.z -= 0.01;
+                            console.log(gun.rotation);
+                            break;
+                        case 49: // d
+                            gun.translateX(1);
+                            console.log(gun.position);
+                            break;
+                        case 50: // space
+                            gun.translateY(1);
+                            console.log(gun.position);
+                            break;
+                        case 51: //R
+                            gun.translateZ(1);
+                            console.log(gun.position);
+                            break;
+                        case 52: //R
+                            gun.translateX(-1);
+                            console.log(gun.position);
+                            break;
+                        case 53: //R
+                            gun.translateY(-1);
+                            console.log(gun.position);
+                            break;
+                        case 54: //R
+                            gun.translateZ(-1);
+                            console.log(gun.position);
+                            break;
+                        case 55: //7
+                            rightShoulder.rotation.x += 0.1;
+                            leftShoulder.rotation.x += 0.09;
+                            break;
+                        case 56: //8
+                            rightShoulder.rotation.x -= 0.1;
+                            leftShoulder.rotation.x -= 0.09;
+                            break;
+                        case 57: //8
+                            rightShoulder.rotation.z += 0.1;
+                            leftShoulder.rotation.z += 0.1;
+                            break;
+                    }
+                }, false);
+
+
+				renderer = new THREE.WebGLRenderer( { antialias: true } );
+				renderer.setPixelRatio( window.devicePixelRatio );
+				renderer.setSize( window.innerWidth, window.innerHeight );
+				renderer.shadowMap.enabled = true;
+				container.appendChild( renderer.domElement );
+
+				window.addEventListener( 'resize', onWindowResize, false );
+
+				// stats
+				stats = new Stats();
+				container.appendChild( stats.dom );
+
+			}
+
+            function findObject(object, name) {
+                if(object.name == name) return object;
+                var ret = null;
+                for(var childid in object.children) {
+                    ret = findObject(object.children[childid], name);
+                    if(ret != null) break;
+                }
+                return ret;
+            }
+
+			function onWindowResize() {
+
+				camera.aspect = window.innerWidth / window.innerHeight;
+				camera.updateProjectionMatrix();
+
+				renderer.setSize( window.innerWidth, window.innerHeight );
+
+			}
+
+			//
+
+			function animate() {
+
+				requestAnimationFrame( animate );
+
+				if ( mixers.length > 0 ) {
+
+					for ( var i = 0; i < mixers.length; i ++ ) {
+
+						mixers[ i ].update( clock.getDelta() );
+
+					}
+
+				}
+
+				renderer.render( scene, camera );
+
+				stats.update();
+
+			}
+
+		</script>
+
+	</body>
+</html>

@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test</title>
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+        }
+
+        body {
+            background-color: #ffffff;
+            margin: 0;
+            overflow: hidden;
+        }
+
+        .message{ background: rgba(0, 0, 0, 0.47);float: right;width:200px;height:250px;padding:5px;color: #ffffff;
+            alignment: right;margin: 10px;right: 0;
+            position: absolute}
+
+        .blood{background: rgba(0, 0, 0, 0.62);
+            width: 33.3%;
+            height: 20px;
+            position: absolute;
+            left: 33.3%;
+            bottom: 50px;
+            border: 5px solid #ffffff;
+        }
+
+        #blood-text{
+            position: absolute;
+            left: 50%;
+            color: white;
+            bottom: 50px;
+            border-bottom: 5px solid #ffffff;
+        }
+        #blood-bar{
+            background:#ff171c;width:33.3%;height:20px;bottom: 50px;position: absolute;left: 33.3%;
+            border-left: 5px solid #ffffff;
+            border-top: 5px solid #ffffff;
+            border-bottom: 5px solid #ffffff;
+        }
+    </style>
+</head>
+<body>
+
+<div class="message" id="rank-list">排行榜：</br></div>
+<div id="msg-board" class="message" style="overflow:auto;bottom: 100px" >
+    消息：</br>
+
+</div>
+
+<div class="m-text" style="margin:10px; right:0; width:200px; bottom: 50px;position: absolute">
+    <textarea id="msg" placeholder="按 Enter 发送"  hidden="true"></textarea>
+</div>
+
+<div class="blood" ></div>
+<div id="blood-bar" ></div>
+
+<div id="blood-text">100/100</div>
+
+</body>
+<script src="lib/three.js"></script>
+<script src="lib/inflate.min.js"></script>
+<script src="lib/FBXLoader.js"></script>
+<script src="lib/Detector.js"></script>
+<script src="lib/stats.min.js"></script>
+<script src="https://cdn.bootcss.com/socket.io/2.0.4/socket.io.js"></script>
+<script src="ThirdPersonControls.js"></script>
+<script src="PointerLock.js"></script>
+<script src="Hero.js"></script>
+<script src="Laser.js"></script>
+<script src="Player.js"></script>
+<script src="chat.js"></script>
+<script>
+    var lock = new PointerLock("title", "click to remove this block");
+
+    var id = 13;
+    var renderer, scene, camera, controls, light, light1, ball;
+    var objects = [];
+    var lasers = [];
+    var hero;
+    var fireTid;
+    var players = [];
+
+    var socket = null;
+
+    var prevTime = performance.now();
+
+    var vertexShader	= [
+        'varying vec3	vVertexWorldPosition;',
+        'varying vec3	vVertexNormal;',
+        'varying vec4	vFragColor;',
+
+        'void main(){',
+        '	vVertexNormal	= normalize(normalMatrix * normal);',
+        '	vVertexWorldPosition	= (modelMatrix * vec4(position, 1.0)).xyz;',
+        '	gl_Position	= projectionMatrix * modelViewMatrix * vec4(position, 1.0);',
+        '}'
+    ].join('\n');
+    var fragmentShader	= [
+        'uniform vec3	glowColor;',
+
+        'varying vec3	vVertexNormal;',
+        'varying vec3	vVertexWorldPosition;',
+        'varying vec4	vFragColor;',
+
+        'void main(){',
+        '	vec3 worldVertexToCamera = cameraPosition - vVertexWorldPosition;',
+        '	vec3 viewCameraToVertex	= (viewMatrix * vec4(worldVertexToCamera, 0.0)).xyz;',
+        '	viewCameraToVertex = normalize(viewCameraToVertex);',
+        // '	float cos = pow(dot(vVertexNormal, viewCameraToVertex), 3.0);',
+        '	float cos = dot(vVertexNormal, viewCameraToVertex);',
+        '	float r = cos + (1.0 - cos) * glowColor.r;',
+        '	float g = cos + (1.0 - cos) * glowColor.g;',
+        '	float b = cos + (1.0 - cos) * glowColor.b;',
+        '	gl_FragColor = vec4(r, g, b, 1);',
+        '}'
+    ].join('\n');
+    var fragmentShader1	= [
+        'uniform vec3	glowColor;',
+        'uniform float	coeficient;',
+        'uniform float	power;',
+
+        'varying vec3	vVertexNormal;',
+        'varying vec3	vVertexWorldPosition;',
+
+        'varying vec4	vFragColor;',
+
+        'void main(){',
+        '	vec3 worldCameraToVertex= vVertexWorldPosition - cameraPosition;',
+        '	vec3 viewCameraToVertex	= (viewMatrix * vec4(worldCameraToVertex, 0.0)).xyz;',
+        '	viewCameraToVertex	= normalize(viewCameraToVertex);',
+        '	float intensity		= pow(coeficient + dot(vVertexNormal, viewCameraToVertex), power);',
+        '	gl_FragColor		= vec4(glowColor, intensity);',
+        '}'
+    ].join('\n');
+    var laserMaterial	= new THREE.ShaderMaterial({
+        uniforms: {
+            glowColor	: {
+                type	: "c",
+                value	: new THREE.Color(0xff55ff)
+            }
+        },
+        vertexShader	: vertexShader,
+        fragmentShader	: fragmentShader,
+        blending	: THREE.NormalBlending,
+        transparent	: true
+    });
+    var ballMaterialW	= new THREE.ShaderMaterial({
+        uniforms: {
+            coeficient	: {
+                type	: "f",
+                value	: 1.0
+            },
+            power		: {
+                type	: "f",
+                value	: 2
+            },
+            glowColor	: {
+                type	: "c",
+                value	: new THREE.Color('white')
+            }
+        },
+        vertexShader	: vertexShader,
+        fragmentShader	: fragmentShader1,
+        blending	: THREE.NormalBlending,
+        transparent	: true
+
+    });
+    var ballMaterialG	= new THREE.ShaderMaterial({
+        uniforms: {
+            coeficient	: {
+                type	: "f",
+                value	: 1.0
+            },
+            power		: {
+                type	: "f",
+                value	: 2
+            },
+            glowColor	: {
+                type	: "c",
+                value	: new THREE.Color('green')
+            }
+        },
+        vertexShader	: vertexShader,
+        fragmentShader	: fragmentShader1,
+        blending	: THREE.NormalBlending,
+        transparent	: true
+
+    });
+
+    function initRender() {
+        renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight); // 渲染内容占满整个屏幕
+        document.body.appendChild(renderer.domElement); // 将渲染器内部的 canvas 对象添加到 body 中
+    }
+
+    function initScene() {
+        scene = new THREE.Scene();
+    }
+
+    function initLight() {
+        light1 = new THREE.PointLight( 0xffffff, 1, 400 );
+        light1.position.set( 50, 50, 50 );
+        scene.add( light1 );
+        light = new THREE.HemisphereLight( 0xffffff, 0xaaaaaa, 1 );
+        light.position.set( 0.5, 1, 0.75 );
+        scene.add(light);
+    }
+
+    var redMaterial = new THREE.MeshPhongMaterial( { color: 0xff0000} );
+    var whiteMaterial = new THREE.MeshPhongMaterial( { color: 0xffffff} );
+    var yellowMaterial = new THREE.MeshPhongMaterial( { color: 0xffff00} );
+    function initCube() {
+
+        var boxGeometry = new THREE.BoxBufferGeometry(10, 10, 10 );
+        // boxGeometry = boxGeometry.toNonIndexed(); // ensure each face has unique vertices
+
+        for ( var i = 0; i < 50; i ++ ) {
+            var box = new THREE.Mesh( boxGeometry, whiteMaterial );
+
+            box.position.x = Math.floor( Math.random() * 20 - 10 ) * 10;
+            box.position.y = Math.floor( Math.random() * 10 ) * 10 + 10;
+            box.position.z = Math.floor( Math.random() * 20 - 10 ) * 10;
+
+            scene.add( box );
+            objects.push( box );
+
+        }
+    }
+
+    function initListener() {
+
+        document.body.addEventListener('keydown', function (e) {
+            switch (e.keyCode) {
+                case 87: // w
+                    hero.moveForward = true;
+                    break;
+                case 83: // s
+                    hero.moveBackward = true;
+                    break;
+                case 65: // a
+                    hero.moveLeft = true;
+                    break;
+                case 68: // d
+                    hero.moveRight = true;
+                    break;
+                case 32: // space
+                    hero.jump();
+                    break;
+                case 82: //R
+                    hero.reloadClip();
+                    break;
+                case 80: //P
+                    console.log(hero.enabled);
+                    break;
+            }
+        }, false);
+
+        document.body.addEventListener('keyup', function (e) {
+            switch (e.keyCode) {
+                case 87: // w
+                    hero.moveForward = false;
+                    break;
+                case 83: // s
+                    hero.moveBackward = false;
+                    break;
+                case 65: // a
+                    hero.moveLeft = false;
+                    break;
+                case 68: // d
+                    hero.moveRight = false;
+                    break;
+            }
+        }, false);
+
+        document.body.addEventListener('mousewheel', function (e) {
+            controls.translateZ(-e.wheelDelta/100);
+        }, false);
+
+        document.body.addEventListener('mousedown', function (e) {
+            if (hero.enabled) {
+                clearInterval(fireTid);
+                fireTid = setInterval(function () {
+                    if (hero.enabled) {
+                        var fire = hero.fire();
+                        if (fire) {
+
+                            var sight = new THREE.Vector3();
+                            sight.setFromMatrixPosition(camera.matrixWorld);
+                            var start = hero.getGunPoint();
+                            var end = new THREE.Vector3();
+                            end = end.addVectors(sight, hero.getDirection().multiplyScalar(300));
+                            var direction = new THREE.Vector3();
+                            direction = direction.subVectors(end, start);
+                            direction.normalize();
+
+                            socket.emit("report-shoot", id, start, direction);
+                            socket.emit("report-shoot", id, start, direction);
+                            // var laser = new Laser(scene, start, direction, 1000, laserMaterial);
+                            // lasers.push(laser);
+
+                            hero.setRecoil();
+                        }
+                    }
+                }, 20);
+            }
+        }, false);
+
+        document.body.addEventListener('mouseup', function (e) {
+            if (hero.enabled) {
+                clearInterval(fireTid);
+                hero.stopFire();
+            }
+        }, false);
+    }
+
+    function updateLasers(delta) {
+        for (var i = 0; i < lasers.length; i++)
+            lasers[i].liveTime -= delta;
+        while (lasers.length > 0 && lasers[0].liveTime <= 0) {
+            lasers[0].remove();
+            lasers.shift();
+        }
+    }
+
+    function initGunSight() {
+        let gunSight = document.createElement("img");
+        gunSight.src = "img/zx1.png";
+        gunSight.style.position = "absolute";
+        gunSight.style.left = (window.innerWidth / 2 - 42) + "px";
+        gunSight.style.top = (window.innerHeight / 2 - 41) + "px";
+        gunSight.style.zIndex = "999";
+        document.body.appendChild(gunSight);
+    }
+
+    function initHero() {
+        camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 1, 1000);
+        controls = new ThirdPersonControls(camera);
+        controls.setZ(15);
+
+        hero = new Hero(scene, 6, 20.5, 22);
+        hero.loadModel();
+        hero.setControls(controls);
+    }
+
+    function initMap() {
+        makePlatform(
+            'model/platform.json',
+            'model/platform.jpg',
+            renderer.capabilities.getMaxAnisotropy());
+        var bkgDir = 'img/bkg/';
+        var envMap = new THREE.CubeTextureLoader().load( [
+            bkgDir + 'px.jpg', // right
+            bkgDir + 'nx.jpg', // left
+            bkgDir + 'py.jpg', // top
+            bkgDir + 'ny.jpg', // bottom
+            bkgDir + 'pz.jpg', // back
+            bkgDir + 'nz.jpg'  // front
+        ] );
+        envMap.format = THREE.RGBFormat;
+        scene.background = envMap;
+        var loader = new THREE.FBXLoader();
+        loader.load( 'model/tower.FBX', function ( object ) {
+            object.traverse( function ( child ) {
+                if ( child.isMesh ) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                }
+            } );
+
+            var scale = 0.0045;
+            object.scale.x = 2*scale;
+            object.scale.y = 2*scale;
+            object.scale.z = scale;
+
+            object.rotation.x = - Math.PI / 2;
+            object.position.y = 77;
+
+            scene.add( object );
+        } );
+    }
+
+    function makePlatform( jsonUrl, textureUrl, textureQuality ) {
+        var texture = new THREE.TextureLoader().load( textureUrl );
+        texture.minFilter = THREE.LinearFilter;
+        texture.anisotropy = textureQuality;
+
+        var loader = new THREE.JSONLoader();
+        loader.load( jsonUrl, function( geometry ) {
+
+            geometry.computeFaceNormals();
+
+            var platform = new THREE.Mesh( geometry, new THREE.MeshBasicMaterial({ map : texture }) );
+
+            platform.name = "platform";
+
+            // platform.scale(10);
+            objects.push(platform);
+
+            var scale = 10;
+            
+            platform.scale.x = scale;
+            platform.scale.y = scale;
+            platform.scale.z = scale;
+
+            // placeholder.add( platform );
+            scene.add(platform);
+
+            plat = platform;
+        });
+
+        var sphere =  new THREE.SphereBufferGeometry( 40, 32, 32 );
+        ball = new THREE.Mesh(sphere, ballMaterialW);
+        ball.position.y = 140;
+
+        scene.add(ball);
+    }
+
+    var plat;
+    
+    function initSocket() {
+        socket = io("http://34.216.190.40:3000");
+
+        socket.emit("new-player", id, 0, 2);
+
+        socket.on('new-player-result', function (ret) {
+        });
+
+        socket.on('syn-pos', function (syn_players) {
+            setRankList(syn_players);
+            ball.material = ballMaterialW;
+            for (var syn_index in syn_players) {
+                var syn_player = syn_players[syn_index];
+                if (syn_player.cure && (syn_player.position.x != 0 || syn_player.position.z != 0))
+                    ball.material = ballMaterialG;
+                for (var j = 0; j < players.length; j++) {
+                    if (syn_index == players[j].id) {
+                        players[j].updateState(syn_player);
+                        break;
+                    }
+                }
+                if (syn_index == id) {
+                    setHealth(syn_player.hp, syn_player.hpMax);
+                    if (syn_player.deadtime > 2000) {
+                        clearInterval(fireTid);
+                        hero.die();
+                    }
+                }
+            }
+        });
+
+        function setRankList(data){
+
+            var rank = document.getElementById("rank-list");
+            var list = [];
+            var index = 0;
+            for (var i in data){
+                list[index] = data[i];
+                index++;
+            }
+
+            var sorted = list.sort(compareObj("score"));
+            rank.innerText = "";
+            for(var j in sorted){
+                rank.innerText += j+"        "+sorted[j].id+" : "+sorted[j].score+"\n";
+            }
+        }
+
+        function compareObj(property){
+            return function(obj1,obj2){
+                var value1 = obj1[property];
+                var value2 = obj2[property];
+                return value2 - value1;
+            }
+        }
+
+        function setHealth(cur, total){
+            cur = Math.max(0, cur);
+
+            var text = document.getElementById("blood-text");
+            text.innerText = Math.floor(cur)+"/"+total;
+            var bar = document.getElementById("blood-bar");
+
+            bar.style.width = (33.3*cur/total)+"%";
+        }
+
+        socket.on('new-comer', function (player_id) {
+            if (player_id == id) return;
+            for (var i = 0; i < players.length; i++) {
+                if (player_id == players[i].id)
+                    return;
+            }
+
+            var player = new Player(scene, player_id);
+            player.initModel();
+            players.push(player);
+        });
+
+        socket.on('shoot-result', function (start, direction, distance) {
+            // console.log(distance);
+            var laser = new Laser(scene, start, direction, distance, laserMaterial);
+            lasers.push(laser);
+        });
+
+        socket.on('new-message', function (name, msg) {
+            showMsg(name, msg);
+        });
+
+        var tid = setInterval(function () {
+            if (hero.loaded)
+                socket.emit('report-pos',
+                    id,
+                    hero.playing_run_forward,
+                    hero.playing_run_backward,
+                    hero.playing_run_left,
+                    hero.playing_run_right,
+                    hero.playing_jump_forward,
+                    hero.playing_jump_backward,
+                    hero.playing_fire,
+                    hero.playing_reload,
+                    hero.playing_die,
+                    hero.getModelPosition(),
+                    hero.getModelRotation());
+        }, 50);
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        if (!lock.locked())
+            controls.enabled = true;
+
+        var time = performance.now();
+        var delta = ( time - prevTime ) / 1000;
+        prevTime = time;
+
+        if (controls.enabled && hero.loaded) {
+            if (hero.enabled) {
+                hero.updateVelocity(delta);
+            }
+            hero.passTime(delta);
+            hero.crash(objects);
+            hero.move(delta);
+        }
+
+        updateLasers(delta);
+
+        hero.updateModel();
+        for (var i = 0; i < players.length; i++) {
+            players[i].updateModel();
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    //head 2.5
+    //body 18
+    //sum  20.5
+    function addBox(height) {
+        var geometry = new THREE.CylinderGeometry(23, 29, height, 32);
+        var mesh = new THREE.Mesh(geometry, laserMaterial);
+
+        mesh.position.x = 0;
+        mesh.position.y = height / 2;
+        mesh.position.z = 0;
+
+        scene.add( mesh );
+    }
+
+    function init() {
+        initRender();
+        initScene();
+        initLight();
+        // initGround();
+        // initCube();
+        initHero();
+        initListener();
+        initGunSight();
+        initMap();
+        initSocket();
+        // addBox(95);
+
+        animate();
+    }
+
+    init();
+
+</script>
+</html>

@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Test</title>
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+        }
+
+        body {
+            background-color: #ffffff;
+            margin: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+</body>
+<script src="lib/three.js"></script>
+<script src="ThirdPersonControls.js"></script>
+<script src="PointerLock.js"></script>
+<script src="Hero.js"></script>
+<script src="Player.js"></script>
+<script src="lib/FBXLoader.js"></script>
+<script src="lib/inflate.min.js"></script>
+<script>
+    var lock = new PointerLock("title", "click to remove this block");
+
+    var renderer, scene, camera, controls, light, ground, box;
+    var cube, raycaster, line, rc;
+    var target = null;
+    var targetNum = 0;
+    var prevNum = 0;
+
+    var hero;
+    var enemy;
+
+    var biasX = [-4.5, 4.5, 0, 0, -3.2, -3.2, 3.2, 3.2];
+    var biasZ = [0, 0, -4.5, 4.5, 3.2, -3.2, 3.2, -3.2];
+
+    var moveForward = false;
+    var moveBackward = false;
+    var moveLeft = false;
+    var moveRight = false;
+    var canJump = false;
+
+    var prevTime = performance.now();
+    var velocity = new THREE.Vector3();
+    var direction = new THREE.Vector3();
+    var acceleration = 200;
+    var friction = 5;
+    var gravity = 98;
+    var shootLeft = 0;
+
+    function initRender() {
+        renderer = new THREE.WebGLRenderer();
+        renderer.setSize(window.innerWidth, window.innerHeight); // 渲染内容占满整个屏幕
+        document.body.appendChild(renderer.domElement); // 将渲染器内部的 canvas 对象添加到 body 中
+    }
+
+    function initScene() {
+        scene = new THREE.Scene();
+    }
+
+    function initCamera() {
+        // 创建一个透视摄像机。视角为 90°，画面比例为屏幕比例，可视范围的最近距离是 1 ，最远是 1000
+        camera = new THREE.PerspectiveCamera(90, window.innerWidth / window.innerHeight, 1, 1000);
+    }
+
+    function initLight() {
+        // light = new THREE.PointLight(0xffffff);
+        // light.position.set(0, -100, 200);
+        // light = new THREE.AmbientLight(0xffffff);
+        light = new THREE.HemisphereLight( 0xeeeeff, 0x777788, 0.75 );
+        light.position.set( 0.5, 1, 0.75 );
+        scene.add(light);
+    }
+
+    function initGround() {
+        scene.add(new THREE.AxesHelper(1000));
+
+        var geometry = new THREE.PlaneGeometry(200, 200, 100, 100);
+        geometry.rotateX(- Math.PI / 2);
+        var texture = new THREE.TextureLoader().load('img/floor.jpg', function( map ) {
+            map.wrapS = THREE.RepeatWrapping;
+            map.wrapT = THREE.RepeatWrapping;
+            // map.anisotropy = 16;
+            map.repeat.set( 8, 8 );
+        });
+        var material = new THREE.MeshLambertMaterial({ map: texture });
+        ground = new THREE.Mesh(geometry, material);
+        scene.add(ground);
+    }
+
+    function initBox() {
+        var geometry = new THREE.BoxGeometry(10, 10, 10);
+        var texture = new THREE.TextureLoader().load('img/box.gif');
+        var material = new THREE.MeshLambertMaterial({ map: texture });
+        box = new THREE.Mesh(geometry, material);
+        scene.add(box);
+        box.position.y = 5;
+    }
+
+    var redMaterial = new THREE.MeshPhongMaterial( { color: 0xff0000} );
+    var whiteMaterial = new THREE.MeshPhongMaterial( { color: 0xffffff} );
+    var yellowMaterial = new THREE.MeshPhongMaterial( { color: 0xffff00} );
+    function initCube() {
+        cube = [];
+
+        var boxGeometry = new THREE.BoxBufferGeometry(10, 10, 10 );
+        boxGeometry = boxGeometry.toNonIndexed(); // ensure each face has unique vertices
+
+        for ( var i = 0; i < 50; i ++ ) {
+            var box = new THREE.Mesh( boxGeometry, whiteMaterial );
+
+            box.position.x = Math.floor( Math.random() * 20 - 10 ) * 10;
+            box.position.y = Math.floor( Math.random() * 10 ) * 10 + 10;
+            box.position.z = Math.floor( Math.random() * 20 - 10 ) * 10;
+
+            scene.add( box );
+            cube.push( box );
+
+        }
+    }
+
+    function initControls() {
+        controls = new ThirdPersonControls(camera);
+        controls.setY(15);
+        controls.setZ(15);
+        scene.add(controls.getObject());
+
+    }
+
+    function initListener() {
+        document.body.addEventListener('keydown', function (e) {
+            switch (e.keyCode) {
+                case 87: // w
+                    moveForward = true;
+                    break;
+                case 83: // s
+                    moveBackward = true;
+                    break;
+                case 65: // a
+                    moveLeft = true;
+                    break;
+                case 68: // d
+                    moveRight = true;
+                    break;
+                case 32: // space
+                    if (canJump)
+                        velocity.y += 80;
+                    canJump = false;
+                    break;
+            }
+        }, false);
+        document.body.addEventListener('keyup', function (e) {
+            switch (e.keyCode) {
+                case 87: // w
+                    moveForward = false;
+                    break;
+                case 83: // s
+                    moveBackward = false;
+                    break;
+                case 65: // a
+                    moveLeft = false;
+                    break;
+                case 68: // d
+                    moveRight = false;
+                    break;
+            }
+        }, false);
+        document.body.addEventListener('mousewheel', function (e) {
+            controls.translateZ(-e.wheelDelta/100);
+        }, false);
+        document.body.addEventListener('click', function (e) {
+            if (e.button == 2) // right
+                targetNum++;
+            if (e.button == 0) { // left
+                if (target != null) {
+                    var lineGeometry = new THREE.Geometry();
+                    lineGeometry.vertices.push(box.position, target.position);
+                    line.geometry = lineGeometry;
+                    scene.add(line);
+                    shootLeft = 0.05;
+                    scene.remove(target);
+                    cube.remove(target);
+                }
+            }
+
+        }, false);
+    }
+
+    function initRaycaster() {
+        raycaster = new Array(8);
+        for (let i = 0; i < 8; i++)
+            raycaster[i] = new THREE.Raycaster( new THREE.Vector3(), new THREE.Vector3( 0, - 1, 0 ), 0, 6 );
+    }
+
+    function initGunSight() {
+        var material = new THREE.LineBasicMaterial({color:0xffffff});
+        var lineGeometry = new THREE.Geometry();
+        lineGeometry.vertices.push(box.position, box.position);
+        line = new THREE.Line(lineGeometry,material);
+
+        let gunSight = document.createElement("img");
+        gunSight.src = "img/zx1.png";
+        gunSight.style.position = "absolute";
+        gunSight.style.left = (window.innerWidth / 2 - 42) + "px";
+        gunSight.style.top = (window.innerHeight / 2 - 41) + "px";
+        gunSight.style.zIndex = "999";
+        document.body.appendChild(gunSight);
+    }
+
+    function initHero() {
+        hero = new Hero(10, 10);
+        hero.model = box;
+        hero.controls = controls;
+    }
+
+    function makePlatform( jsonUrl, textureUrl, textureQuality ) {
+        var placeholder = new THREE.Object3D();
+
+        var texture = new THREE.TextureLoader().load( textureUrl );
+        texture.minFilter = THREE.LinearFilter;
+        texture.anisotropy = textureQuality;
+
+        var loader = new THREE.JSONLoader();
+        loader.load( jsonUrl, function( geometry ) {
+
+            geometry.computeFaceNormals();
+
+            var platform = new THREE.Mesh( geometry, new THREE.MeshBasicMaterial({ map : texture }) );
+
+            platform.name = "platform";
+
+            // platform.scale(10);
+
+            placeholder.add( platform );
+        });
+
+        placeholder.scale.x = 10;
+        placeholder.scale.y = 10;
+        placeholder.scale.z = 10;
+
+        return placeholder;
+    }
+
+    Array.prototype.contains = function (val) {
+        for (i in this) {
+            if (this[i] == val) return true;
+        }
+        return false;
+    };
+    Array.prototype.indexOf = function(val) {
+        for (var i = 0; i < this.length; i++) {
+            if (this[i] == val) return i;
+        }
+        return -1;
+    };
+    Array.prototype.remove = function(val) {
+        var index = this.indexOf(val);
+        if (index > -1) {
+            this.splice(index, 1);
+        }
+    };
+
+    function animate() {
+        requestAnimationFrame(animate);
+        if (!lock.locked())
+            controls.enabled = true;
+        if (controls.enabled) {
+
+            var time = performance.now();
+            var delta = ( time - prevTime ) / 1000;
+
+            velocity.x -= velocity.x * friction * delta;
+            velocity.z -= velocity.z * friction * delta;
+
+            velocity.y -= gravity * delta;
+
+            direction.z = Number( moveForward ) - Number( moveBackward );
+            direction.x = Number( moveLeft ) - Number( moveRight );
+            direction.normalize();
+
+            if ( moveForward || moveBackward ) velocity.z -= direction.z * acceleration * delta;
+            if ( moveLeft || moveRight ) velocity.x -= direction.x * acceleration * delta;
+
+            for (let i = 0; i < 8; i++) {
+                raycaster[i].ray.origin.copy(box.position);
+                raycaster[i].ray.rotation = box.rotation;
+                raycaster[i].ray.origin.x += biasX[i];
+                raycaster[i].ray.origin.z += biasZ[i];
+            }
+
+            var intersections, interCube;
+            var onObject = false;
+            for (let i = 0; i < 8; i++) {
+                intersections = raycaster[i].intersectObjects(cube);
+                if (intersections.length > 0) {
+                    onObject = true;
+                    interCube = intersections[0].object;
+                }
+            }
+
+            if ( onObject && velocity.y < 0) {
+                velocity.y = 0;
+                controls.getObject().position.y = interCube.position.y + 20;
+                canJump = true;
+            }
+
+            var platform = scene.getObjectByName( "platform", true );
+            if( platform ) {
+                rc.ray.origin.copy(controls.position);
+
+                var hits = rc.intersectObject(platform);
+
+                if( ( hits.length > 0 ) && ( hits[0].face.normal.y > 0 ) ) {
+                    var actualHeight = hits[0].distance - 15;
+
+                    // collision: stick to the surface if landing on it
+
+                    if( ( velocity.y <= 0 ) && ( Math.abs( actualHeight ) < 1 ) ) {
+                        controls.position.y -= actualHeight;
+                        velocity.y = 0;
+                        canJump = true;
+                    }
+                }
+            }
+
+
+            controls.getObject().translateX( velocity.x * delta );
+            controls.getObject().translateY( velocity.y * delta );
+            controls.getObject().translateZ( velocity.z * delta );
+
+            if (controls.getObject().position.y < 15) {
+                velocity.y = 0;
+                controls.getObject().position.y = 15;
+                canJump = true;
+            }
+
+            box.position.x = controls.getObject().position.x;
+            box.position.z = controls.getObject().position.z;
+            box.position.y = controls.getObject().position.y - 10;
+            if (direction.length() > 0)
+                box.rotation.y = controls.getObject().rotation.y;
+
+            // var lineGeometry = new THREE.Geometry();
+            // var lineEnd = new THREE.Vector3();
+            // lineEnd = lineEnd.addVectors(controls.getObject().position, controls.getDirection().multiplyScalar(100));
+            // lineGeometry.vertices.push(box.position, lineEnd);
+            // line.geometry = lineGeometry;
+
+            let d = controls.getDirection();
+            let l = new THREE.Vector3();
+            let candidate = [];
+            for (let i = 0; i < cube.length; i++) {
+                l = l.subVectors(cube[i].position, controls.getObject().position);
+                if (d.angleTo(l) < 0.3) {
+                    cube[i].material = yellowMaterial;
+                    candidate.push(cube[i]);
+                }
+                else
+                    cube[i].material = whiteMaterial;
+            }
+
+            if (target != null && candidate.contains(target)) {
+                if (targetNum != prevNum)
+                    target = candidate[targetNum % candidate.length];
+            }
+            else if (candidate.length > 0) {
+                target = candidate[targetNum % candidate.length];
+            }
+            else
+                target = null;
+            if (target != null)
+                target.material = redMaterial;
+
+            shootLeft -= delta;
+            if (shootLeft < 0)
+                scene.remove(line);
+
+            prevNum = targetNum;
+            prevTime = time;
+        }
+        if (enemy.enabled)
+            enemy.updateModel();
+
+        renderer.render(scene, camera);
+    }
+
+    function init() {
+        initRender();
+        initScene();
+        initLight();
+        // initGround();
+        initBox();
+        initCube();
+        initCamera();
+        initControls();
+        // initHero();
+        initListener();
+        initRaycaster();
+        initGunSight();
+        scene.add( makePlatform(
+            'model/platform.json',
+            'model/platform.jpg',
+            renderer.capabilities.getMaxAnisotropy()
+        ));
+        rc = new THREE.Raycaster();
+        rc.ray.direction.set( 0, -1, 0 );
+        enemy = new Player(scene, 10);
+        enemy.initModel();
+
+        animate();
+    }
+
+    init();
+
+</script>
+</html>

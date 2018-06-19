@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <title>Example 08.06 - Load OBJ model </title>
+    <script type="text/javascript" src="lib/three.js"></script>
+    <script type="text/javascript" src="js/loaders/OBJLoader.js"></script>
+    <script type="text/javascript" src="js/loaders/MTLLoader.js"></script>
+
+    <script type="text/javascript" src="lib/stats.min.js"></script>
+    <script type="text/javascript" src="lib/dat.gui.min.js"></script>
+    <style>
+        body {
+            /* set margin to 0 and overflow to hidden, to go fullscreen */
+            margin: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+<body>
+
+<div id="Stats-output">
+</div>
+<!-- Div which will hold the Output -->
+<div id="WebGL-output">
+</div>
+
+<!-- Javascript code that runs our Three.js examples -->
+<script src="https://cdn.bootcss.com/three.js/90/three.min.js"></script>
+<script src="https://cdn.bootcss.com/socket.io/2.0.4/socket.io.js"></script>
+<script>
+    var socket = io("http://34.216.190.40:3000");
+
+    socket.on('shoot-result', function (start, direction, distance) {
+        alert(distance);
+    });
+
+    socket.emit("new-player", 6, 0, 1);
+    socket.emit("report-shoot", 6, new THREE.Vector3(-210.42, 95, -147.284), new THREE.Vector3(0,-1,0));
+</script>
+</body>
+</html>
